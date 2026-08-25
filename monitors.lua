@@ -1,10 +1,10 @@
 -- See https://wiki.hypr.land/Configuring/Basics/Monitors/
 -- List current monitors and supported resolutions with: hyprctl monitors all
 
-hl.env("GDK_SCALE", "2")
+hl.env("GDK_SCALE", "3")
 
 -- Anything not listed below: preferred mode, auto position and scale.
-hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 2 })
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 3 })
 
 -- HP V28 4K, left side (effective 2560x1440).
 hl.monitor({ output = "DP-1", mode = "preferred", position = "0x0", scale = 1.5 })
