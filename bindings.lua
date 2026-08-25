@@ -17,6 +17,11 @@ hl.unbind("SUPER + F") -- was: Full screen
 hl.unbind("SUPER + W") -- was: Close window
 o.bind("SUPER + SPACE", "Close window", hl.dsp.window.close())
 o.bind("SUPER + F", "Launch apps", "omarchy-menu toggle apps")
+
+-- Keep SUPER + ALT + SPACE on the full Omarchy menu.
+-- Upstream repointed it at the apps menu; SUPER + F already covers that.
+hl.unbind("SUPER + ALT + SPACE") -- was: Apps menu
+o.bind("SUPER + ALT + SPACE", "Omarchy menu", "omarchy-menu toggle")
 o.bind("SUPER + CTRL + SHIFT + F", "Full screen", hl.dsp.window.fullscreen({ mode = "fullscreen" }))
 
 -- Apps.
