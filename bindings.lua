@@ -54,7 +54,7 @@ o.bind("SUPER + SHIFT + F2", "Night light dimmer", nightlight_adjust .. "brightn
 o.bind("SUPER + SHIFT + F3", "Night light brighter", nightlight_adjust .. "brightness up")
 
 -- Dictation and clipboard.
-o.bind("SUPER + V", "Toggle dictation", os.getenv("HOME") .. "/.local/bin/dictation-toggle")
+o.bind("SUPER + V", "Toggle dictation", "voxtype record toggle")
 o.bind("SUPER + Multi_key", "Clipboard history", "omarchy-shell shell toggle omarchy.clipboard")
 
 -- Scratchpad on TAB, on the "magic" special workspace.
@@ -67,3 +67,6 @@ o.bind("SUPER + SHIFT + TAB", "Move to scratchpad", hl.dsp.window.move({ workspa
 -- Mouse forward/back buttons switch workspace on the current monitor.
 o.bind("mouse:276", "Next workspace (mouse fwd)", hl.dsp.focus({ workspace = "r+1" }), { mouse = true })
 o.bind("mouse:275", "Previous workspace (mouse back)", hl.dsp.focus({ workspace = "r-1" }), { mouse = true })
+
+-- Thumb button (BTN_FORWARD) toggles voxtype dictation, same as SUPER + V.
+o.bind("mouse:277", "Toggle dictation (mouse thumb)", "voxtype record toggle", { mouse = true })
