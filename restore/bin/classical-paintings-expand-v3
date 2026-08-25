@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""Download 200 more paintings: Americana, varied landscapes, colorful works."""
+
+import json
+import re
+import sys
+import time
+from pathlib import Path
+
+import requests
+
+BACKGROUNDS_DIR = Path.home() / ".config/omarchy/themes/classical-paintings/backgrounds"
+STATE_FILE = BACKGROUNDS_DIR / ".download-state.json"
+MET_BASE = "https://collectionapi.metmuseum.org/public/collection/v1"
+
+REQUEST_SLEEP = 0.5
+HEADERS = {"User-Agent": "ClassicalPaintingsBot/1.0 (personal wallpaper rotation)"}
+
+
+def get_json(url, params=None, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
+            if resp.status_code != 200:
+                time.sleep(5 * (attempt + 1))
+                continue
+            text = resp.text.lstrip()
+            if text.startswith("<"):
+                print(f"  ! Rate-limited, backing off {15 * (attempt + 1)}s", flush=True)
+                time.sleep(15 * (attempt + 1))
+                continue
+            return resp.json()
+        except (requests.RequestException, json.JSONDecodeError) as e:
+            print(f"  ! Request error: {e}", flush=True)
+            time.sleep(5)
+    return None
+
+
+# Broader searches for variety: Americana, colorful, new landscapes, maritime, genre
+SEARCHES = [
+    # Americana — frontier, genre, folk
+    ("Emanuel Leutze", {"hasImages": "true", "isPublicDomain": "true", "q": "Emanuel Leutze"}),
+    ("John Singer Sargent", {"hasImages": "true", "isPublicDomain": "true", "q": "John Singer Sargent"}),
+    ("Mary Cassatt", {"hasImages": "true", "isPublicDomain": "true", "q": "Mary Cassatt"}),
+    ("Childe Hassam", {"hasImages": "true", "isPublicDomain": "true", "q": "Childe Hassam"}),
+    ("William Merritt Chase", {"hasImages": "true", "isPublicDomain": "true", "q": "William Merritt Chase"}),
+    ("James McNeill Whistler", {"hasImages": "true", "isPublicDomain": "true", "q": "James McNeill Whistler"}),
+    ("Gilbert Stuart", {"hasImages": "true", "isPublicDomain": "true", "q": "Gilbert Stuart"}),
+    ("Thomas Eakins", {"hasImages": "true", "isPublicDomain": "true", "q": "Thomas Eakins"}),
+    ("Frederic Remington", {"hasImages": "true", "isPublicDomain": "true", "q": "Frederic Remington"}),
+    ("John Trumbull", {"hasImages": "true", "isPublicDomain": "true", "q": "John Trumbull"}),
+    ("Benjamin West", {"hasImages": "true", "isPublicDomain": "true", "q": "Benjamin West"}),
+    ("William Sidney Mount", {"hasImages": "true", "isPublicDomain": "true", "q": "William Sidney Mount"}),
+    ("John Copley", {"hasImages": "true", "isPublicDomain": "true", "q": "John Singleton Copley"}),
+
+    # Post-Impressionism / colorful
+    ("Gauguin", {"hasImages": "true", "isPublicDomain": "true", "q": "Paul Gauguin"}),
+    ("Van Gogh", {"hasImages": "true", "isPublicDomain": "true", "q": "Vincent van Gogh"}),
+    ("Cézanne", {"hasImages": "true", "isPublicDomain": "true", "q": "Paul Cézanne"}),
+    ("Monet", {"hasImages": "true", "isPublicDomain": "true", "q": "Claude Monet"}),
+    ("Renoir", {"hasImages": "true", "isPublicDomain": "true", "q": "Pierre-Auguste Renoir"}),
+    ("Pissarro", {"hasImages": "true", "isPublicDomain": "true", "q": "Camille Pissarro"}),
+    ("Sisley", {"hasImages": "true", "isPublicDomain": "true", "q": "Alfred Sisley"}),
+    ("Bonnard", {"hasImages": "true", "isPublicDomain": "true", "q": "Pierre Bonnard"}),
+    ("Vuillard", {"hasImages": "true", "isPublicDomain": "true", "q": "Edouard Vuillard"}),
+    ("Joaquín Sorolla", {"hasImages": "true", "isPublicDomain": "true", "q": "Joaquín Sorolla"}),
+
+    # Dutch/Flemish Golden Age landscapes & genre
+    ("Jacob van Ruisdael", {"hasImages": "true", "isPublicDomain": "true", "q": "Jacob van Ruisdael"}),
+    ("Meindert Hobbema", {"hasImages": "true", "isPublicDomain": "true", "q": "Meindert Hobbema"}),
+    ("Aelbert Cuyp", {"hasImages": "true", "isPublicDomain": "true", "q": "Aelbert Cuyp"}),
+    ("Jan van Goyen", {"hasImages": "true", "isPublicDomain": "true", "q": "Jan van Goyen"}),
+    ("Pieter Bruegel", {"hasImages": "true", "isPublicDomain": "true", "q": "Pieter Bruegel"}),
+
+    # Italian / Mediterranean landscapes
+    ("Canaletto", {"hasImages": "true", "isPublicDomain": "true", "q": "Canaletto"}),
+    ("Giovanni Paolo Panini", {"hasImages": "true", "isPublicDomain": "true", "q": "Giovanni Paolo Panini"}),
+
+    # Maritime / seascape variety
+    ("Ivan Aivazovsky", {"hasImages": "true", "isPublicDomain": "true", "q": "Ivan Aivazovsky"}),
+    ("William Bradford", {"hasImages": "true", "isPublicDomain": "true", "q": "William Bradford"}),
+
+    # Romantic / dramatic landscapes
+    ("John Martin", {"hasImages": "true", "isPublicDomain": "true", "q": "John Martin painting"}),
+    ("Samuel Palmer", {"hasImages": "true", "isPublicDomain": "true", "q": "Samuel Palmer"}),
+
+    # Landscape keywords for variety
+    ("tropical landscape", {"hasImages": "true", "isPublicDomain": "true", "q": "tropical landscape"}),
+    ("pastoral landscape", {"hasImages": "true", "isPublicDomain": "true", "q": "pastoral landscape"}),
+    ("winter landscape", {"hasImages": "true", "isPublicDomain": "true", "q": "winter landscape oil"}),
+    ("harvest landscape", {"hasImages": "true", "isPublicDomain": "true", "q": "harvest landscape"}),
+    ("Italian landscape", {"hasImages": "true", "isPublicDomain": "true", "q": "Italian landscape oil"}),
+    ("moonlight painting", {"hasImages": "true", "isPublicDomain": "true", "q": "moonlight painting"}),
+    ("frontier American", {"hasImages": "true", "isPublicDomain": "true", "q": "frontier American West"}),
+    ("garden painting", {"hasImages": "true", "isPublicDomain": "true", "q": "garden flowers oil painting"}),
+]
+
+TARGET_NEW = 200
+PER_SEARCH_CAP = 60
+
+
+def slugify(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text[:80]
+
+
+def load_state() -> dict:
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {"downloaded": [], "failed": []}
+
+
+def save_state(state: dict):
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def download_image(url: str, filepath: Path) -> bool:
+    try:
+        resp = requests.get(url, timeout=60, stream=True)
+        resp.raise_for_status()
+        content_type = resp.headers.get("content-type", "")
+        if "image" not in content_type and "octet" not in content_type:
+            return False
+        with open(filepath, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        if filepath.stat().st_size < 50_000:
+            filepath.unlink()
+            return False
+        return True
+    except Exception as e:
+        print(f"    Download error: {e}", flush=True)
+        if filepath.exists():
+            filepath.unlink()
+        return False
+
+
+def main():
+    BACKGROUNDS_DIR.mkdir(parents=True, exist_ok=True)
+    state = load_state()
+    seen_ids = set(state["downloaded"]) | set(state["failed"])
+
+    all_candidates = []
+    candidate_set = set()
+
+    for label, params in SEARCHES:
+        print(f"Searching: {label}...", flush=True)
+        data = get_json(f"{MET_BASE}/search", params=params)
+        if data is None:
+            print(f"  Search failed", flush=True)
+            continue
+        ids = data.get("objectIDs") or []
+        new_ids = [oid for oid in ids if oid not in candidate_set and str(oid) not in seen_ids][:PER_SEARCH_CAP]
+        for oid in new_ids:
+            candidate_set.add(oid)
+            all_candidates.append(oid)
+        print(f"  {len(ids)} total, {len(new_ids)} new candidates", flush=True)
+        time.sleep(REQUEST_SLEEP)
+
+    print(f"\nTotal new candidates: {len(all_candidates)}")
+    print(f"Target: {TARGET_NEW} new paintings\n")
+
+    downloaded = 0
+    scanned = 0
+    for obj_id in all_candidates:
+        if downloaded >= TARGET_NEW:
+            break
+
+        time.sleep(REQUEST_SLEEP)
+        scanned += 1
+        if scanned % 50 == 0:
+            print(f"  ... scanned {scanned}/{len(all_candidates)}, downloaded {downloaded}", flush=True)
+
+        obj = get_json(f"{MET_BASE}/objects/{obj_id}")
+        if obj is None:
+            continue
+
+        if not obj.get("isPublicDomain"):
+            continue
+        if not obj.get("primaryImage"):
+            continue
+
+        medium = obj.get("medium", "").lower()
+        if "oil" not in medium:
+            continue
+
+        title = obj.get("title", "untitled")
+        artist = obj.get("artistDisplayName", "unknown") or "unknown"
+        image_url = obj["primaryImage"]
+
+        filename = f"met-{obj_id}-{slugify(artist)}-{slugify(title)}.jpg"
+        filepath = BACKGROUNDS_DIR / filename
+
+        if filepath.exists():
+            state["downloaded"].append(str(obj_id))
+            save_state(state)
+            downloaded += 1
+            continue
+
+        print(f"  [{downloaded+1}/{TARGET_NEW}] {artist} - {title}", flush=True)
+        if download_image(image_url, filepath):
+            downloaded += 1
+            state["downloaded"].append(str(obj_id))
+            save_state(state)
+        else:
+            state["failed"].append(str(obj_id))
+            save_state(state)
+
+    total = len([f for f in BACKGROUNDS_DIR.iterdir()
+                 if f.is_file() and not f.name.startswith(".")])
+    print(f"\n{'='*60}")
+    print(f"Added {downloaded} new paintings. Total collection: {total}")
+    print(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    main()

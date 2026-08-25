@@ -1,0 +1,20 @@
+#!/bin/bash
+# Simple dictation toggle: OFF ↔ ON
+# Super+V toggles dictation on and off.
+
+VENV="$HOME/.local/share/dictation-whisper/venv"
+DAEMON="$HOME/.local/share/dictation-whisper/transcribe.py"
+PID_FILE="/tmp/dictation-whisper.pid"
+
+daemon_running() {
+    [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+}
+
+if daemon_running; then
+    kill "$(cat "$PID_FILE")" 2>/dev/null
+    rm -f "$PID_FILE"
+else
+    "$VENV/bin/python3" "$DAEMON" &
+    echo $! > "$PID_FILE"
+    disown
+fi

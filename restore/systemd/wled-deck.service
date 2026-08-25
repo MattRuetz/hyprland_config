@@ -1,0 +1,23 @@
+[Unit]
+Description=WLED Deck
+Documentation=https://github.com/MattRuetz
+# The engine streams over the LAN, so do not start before the network is up.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/wled-deck
+Environment=NODE_ENV=production
+Environment=PORT=5678
+# 0.0.0.0 so the deck is reachable from a phone. This is an unauthenticated
+# control surface: anyone on the LAN can change the lights. Bind to 127.0.0.1
+# instead if that is not wanted.
+Environment=HOST=0.0.0.0
+# mise shims resolve the active node version, so this survives a node upgrade.
+ExecStart=%h/.local/share/mise/shims/node build
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

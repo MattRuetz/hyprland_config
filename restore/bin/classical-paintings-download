@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+"""Download 300+ high-resolution classical oil paintings from MET and AIC APIs."""
+
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+from urllib.parse import urlparse
+
+import requests
+
+BACKGROUNDS_DIR = Path.home() / ".config/omarchy/themes/classical-paintings/backgrounds"
+STATE_FILE = BACKGROUNDS_DIR / ".download-state.json"
+TARGET_COUNT = 320
+MET_COUNT = 320
+MIN_WIDTH = 1920
+
+# MET departments with classical paintings
+# 11=European Paintings, 21=American Paintings, 9=Drawings & Prints, 15=Asian Art
+MET_DEPARTMENTS = [11, 21]
+
+
+def slugify(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text[:80]
+
+
+def load_state() -> dict:
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {"downloaded": [], "failed": []}
+
+
+def save_state(state: dict):
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def download_image(url: str, filepath: Path) -> bool:
+    try:
+        resp = requests.get(url, timeout=60, stream=True)
+        resp.raise_for_status()
+        content_type = resp.headers.get("content-type", "")
+        if "image" not in content_type and "octet" not in content_type:
+            return False
+        with open(filepath, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        # Check file isn't tiny (corrupt/placeholder)
+        if filepath.stat().st_size < 50_000:
+            filepath.unlink()
+            return False
+        return True
+    except Exception as e:
+        print(f"  Download error: {e}")
+        if filepath.exists():
+            filepath.unlink()
+        return False
+
+
+def fetch_met_paintings(count: int, state: dict) -> int:
+    """Fetch oil paintings from the Metropolitan Museum of Art."""
+    print(f"\n{'='*60}")
+    print(f"Fetching from Metropolitan Museum of Art (target: {count})")
+    print(f"{'='*60}")
+
+    # Search multiple MET departments for public domain oil paintings
+    search_url = "https://collectionapi.metmuseum.org/public/collection/v1/search"
+    object_ids = []
+    seen = set()
+    for dept in MET_DEPARTMENTS:
+        params = {
+            "hasImages": "true",
+            "isPublicDomain": "true",
+            "departmentId": dept,
+            "q": "oil on canvas",
+        }
+        print(f"Searching MET department {dept}...")
+        resp = requests.get(search_url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        ids = data.get("objectIDs") or []
+        for oid in ids:
+            if oid not in seen:
+                object_ids.append(oid)
+                seen.add(oid)
+        print(f"  Department {dept}: {len(ids)} results")
+
+    print(f"Total unique candidates: {len(object_ids)}")
+
+    if not object_ids:
+        print("No results from MET API")
+        return 0
+
+    downloaded = 0
+    skipped = 0
+    already_have = len(state["downloaded"])
+    for i, obj_id in enumerate(object_ids):
+        if (downloaded + already_have) >= count:
+            break
+
+        if str(obj_id) in state["downloaded"]:
+            skipped += 1
+            continue
+
+        if str(obj_id) in state["failed"]:
+            continue
+
+        # Rate limit: ~10 req/s to be polite
+        time.sleep(0.1)
+
+        try:
+            obj_url = f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{obj_id}"
+            obj_resp = requests.get(obj_url, timeout=15)
+            obj_resp.raise_for_status()
+            obj = obj_resp.json()
+
+            # Filter criteria
+            if not obj.get("isPublicDomain"):
+                continue
+            if not obj.get("primaryImage"):
+                continue
+
+            title = obj.get("title", "untitled")
+            artist = obj.get("artistDisplayName", "unknown")
+            medium = obj.get("medium", "").lower()
+
+            # Must be oil painting
+            if "oil" not in medium:
+                continue
+
+            image_url = obj["primaryImage"]
+            filename = f"met-{obj_id}-{slugify(artist)}-{slugify(title)}.jpg"
+            filepath = BACKGROUNDS_DIR / filename
+
+            if filepath.exists():
+                downloaded += 1
+                continue
+
+            print(f"  [{downloaded+1}/{count}] {artist} - {title}")
+            if download_image(image_url, filepath):
+                downloaded += 1
+                state["downloaded"].append(str(obj_id))
+                save_state(state)
+            else:
+                state["failed"].append(str(obj_id))
+
+        except Exception as e:
+            print(f"  Error fetching object {obj_id}: {e}")
+            state["failed"].append(str(obj_id))
+            continue
+
+    print(f"\nMET: Downloaded {downloaded} paintings (skipped {skipped} existing)")
+    return downloaded
+
+
+def fetch_aic_paintings(count: int, state: dict, start_index: int) -> int:
+    """Fetch oil paintings from Art Institute of Chicago."""
+    print(f"\n{'='*60}")
+    print(f"Fetching from Art Institute of Chicago (target: {count})")
+    print(f"{'='*60}")
+
+    base_url = "https://api.artic.edu/api/v1/artworks/search"
+    iiif_base = "https://www.artic.edu/iiif/2"
+
+    downloaded = 0
+    page = 1
+    per_page = 50
+
+    while downloaded < count and page <= 20:
+        print(f"  Searching page {page}...")
+        params = {
+            "q": "oil on canvas",
+            "query[term][is_public_domain]": "true",
+            "fields": "id,title,artist_title,image_id,medium_display,classification_title",
+            "limit": per_page,
+            "page": page,
+        }
+
+        try:
+            resp = requests.get(base_url, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            artworks = data.get("data", [])
+
+            if not artworks:
+                break
+
+            for artwork in artworks:
+                if downloaded >= count:
+                    break
+
+                art_id = str(artwork.get("id", ""))
+                aic_key = f"aic-{art_id}"
+
+                if aic_key in state["downloaded"] or aic_key in state["failed"]:
+                    continue
+
+                image_id = artwork.get("image_id")
+                if not image_id:
+                    continue
+
+                medium = (artwork.get("medium_display") or "").lower()
+                if "oil" not in medium:
+                    continue
+
+                title = artwork.get("title", "untitled")
+                artist = artwork.get("artist_title", "unknown") or "unknown"
+
+                # IIIF: request full size image
+                image_url = f"{iiif_base}/{image_id}/full/full/0/default.jpg"
+
+                idx = start_index + downloaded + 1
+                filename = f"{idx:03d}-aic-{slugify(artist)}-{slugify(title)}.jpg"
+                filepath = BACKGROUNDS_DIR / filename
+
+                if filepath.exists():
+                    downloaded += 1
+                    continue
+
+                print(f"  [{downloaded+1}/{count}] {artist} - {title}")
+
+                # Rate limit: AIC allows 60/min
+                time.sleep(1.1)
+
+                if download_image(image_url, filepath):
+                    downloaded += 1
+                    state["downloaded"].append(aic_key)
+                    save_state(state)
+                else:
+                    state["failed"].append(aic_key)
+
+            page += 1
+
+        except Exception as e:
+            print(f"  Error on page {page}: {e}")
+            page += 1
+            time.sleep(2)
+            continue
+
+    print(f"\nAIC: Downloaded {downloaded} paintings")
+    return downloaded
+
+
+def main():
+    BACKGROUNDS_DIR.mkdir(parents=True, exist_ok=True)
+    state = load_state()
+
+    # Count existing images (excluding hidden files)
+    existing = len([f for f in BACKGROUNDS_DIR.iterdir()
+                    if f.is_file() and not f.name.startswith(".")])
+    print(f"Existing paintings: {existing}")
+
+    if existing >= TARGET_COUNT:
+        print(f"Already have {existing} paintings (target: {TARGET_COUNT}). Done!")
+        return
+
+    met_downloaded = fetch_met_paintings(MET_COUNT, state)
+
+    total = len([f for f in BACKGROUNDS_DIR.iterdir()
+                 if f.is_file() and not f.name.startswith(".")])
+    print(f"\n{'='*60}")
+    print(f"Total paintings downloaded: {total}")
+    print(f"{'='*60}")
+
+    if total < TARGET_COUNT:
+        print(f"Warning: Only got {total}/{TARGET_COUNT}. Re-run to try again.")
+
+
+if __name__ == "__main__":
+    main()

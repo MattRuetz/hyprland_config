@@ -1,0 +1,8 @@
+[Unit]
+Description=Set daily classical painting wallpaper
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/matt/.local/bin/classical-paintings-next
+KillMode=none

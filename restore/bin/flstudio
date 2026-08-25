@@ -1,0 +1,8 @@
+#!/bin/bash
+# Launch FL Studio 2026 in its dedicated Wine prefix
+export WINEPREFIX="$HOME/.local/share/wineprefixes/flstudio"
+export WINEDEBUG=-all
+# Match Hyprland cursor on 2x display (XWayland has no theme set by default)
+export XCURSOR_THEME=Adwaita
+export XCURSOR_SIZE=48
+exec wine "$WINEPREFIX/drive_c/Program Files/Image-Line/FL Studio 2026/FL64.exe" "$@"

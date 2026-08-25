@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""Download 200 Japanese artworks: ukiyo-e, screen paintings, ink wash, woodblock prints."""
+
+import json
+import re
+import sys
+import time
+from pathlib import Path
+
+import requests
+
+BACKGROUNDS_DIR = Path.home() / ".config/omarchy/themes/classical-paintings/backgrounds"
+STATE_FILE = BACKGROUNDS_DIR / ".download-state.json"
+MET_BASE = "https://collectionapi.metmuseum.org/public/collection/v1"
+
+REQUEST_SLEEP = 0.5
+HEADERS = {"User-Agent": "ClassicalPaintingsBot/1.0 (personal wallpaper rotation)"}
+
+
+def get_json(url, params=None, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
+            if resp.status_code != 200:
+                time.sleep(5 * (attempt + 1))
+                continue
+            text = resp.text.lstrip()
+            if text.startswith("<"):
+                print(f"  ! Rate-limited, backing off {15 * (attempt + 1)}s", flush=True)
+                time.sleep(15 * (attempt + 1))
+                continue
+            return resp.json()
+        except (requests.RequestException, json.JSONDecodeError) as e:
+            print(f"  ! Request error: {e}", flush=True)
+            time.sleep(5)
+    return None
+
+
+# Japanese art searches — dept 6 = Asian Art at MET
+# Broader medium filter: ink, color on silk/paper, woodblock, screen, scroll
+SEARCHES = [
+    # By artist
+    ("Hokusai", {"hasImages": "true", "isPublicDomain": "true", "q": "Katsushika Hokusai"}),
+    ("Hiroshige", {"hasImages": "true", "isPublicDomain": "true", "q": "Utagawa Hiroshige"}),
+    ("Utamaro", {"hasImages": "true", "isPublicDomain": "true", "q": "Kitagawa Utamaro"}),
+    ("Kuniyoshi", {"hasImages": "true", "isPublicDomain": "true", "q": "Utagawa Kuniyoshi"}),
+    ("Kunisada", {"hasImages": "true", "isPublicDomain": "true", "q": "Utagawa Kunisada"}),
+    ("Yoshitoshi", {"hasImages": "true", "isPublicDomain": "true", "q": "Tsukioka Yoshitoshi"}),
+    ("Sharaku", {"hasImages": "true", "isPublicDomain": "true", "q": "Tōshūsai Sharaku"}),
+    ("Hasui Kawase", {"hasImages": "true", "isPublicDomain": "true", "q": "Hasui Kawase"}),
+    ("Ohara Koson", {"hasImages": "true", "isPublicDomain": "true", "q": "Ohara Koson"}),
+    ("Sesshu", {"hasImages": "true", "isPublicDomain": "true", "q": "Sesshū Tōyō"}),
+    ("Ogata Korin", {"hasImages": "true", "isPublicDomain": "true", "q": "Ogata Kōrin"}),
+    ("Sakai Hoitsu", {"hasImages": "true", "isPublicDomain": "true", "q": "Sakai Hōitsu"}),
+    ("Ito Jakuchu", {"hasImages": "true", "isPublicDomain": "true", "q": "Itō Jakuchū"}),
+    ("Maruyama Okyo", {"hasImages": "true", "isPublicDomain": "true", "q": "Maruyama Ōkyo"}),
+    ("Tosa Mitsunobu", {"hasImages": "true", "isPublicDomain": "true", "q": "Tosa Mitsunobu"}),
+
+    # By subject/keyword
+    ("Japanese landscape", {"hasImages": "true", "isPublicDomain": "true", "q": "Japanese landscape"}),
+    ("Japanese screen painting", {"hasImages": "true", "isPublicDomain": "true", "q": "Japanese screen painting"}),
+    ("Japanese folding screen", {"hasImages": "true", "isPublicDomain": "true", "q": "Japanese folding screen"}),
+    ("ukiyo-e", {"hasImages": "true", "isPublicDomain": "true", "q": "ukiyo-e"}),
+    ("Japanese woodblock", {"hasImages": "true", "isPublicDomain": "true", "q": "Japanese woodblock print"}),
+    ("Japanese ink painting", {"hasImages": "true", "isPublicDomain": "true", "q": "Japanese ink painting"}),
+    ("Japanese scroll", {"hasImages": "true", "isPublicDomain": "true", "q": "Japanese hanging scroll"}),
+    ("Japanese flowers birds", {"hasImages": "true", "isPublicDomain": "true", "q": "Japanese flowers birds"}),
+    ("Japanese Mount Fuji", {"hasImages": "true", "isPublicDomain": "true", "q": "Mount Fuji"}),
+    ("Japanese waves", {"hasImages": "true", "isPublicDomain": "true", "q": "Japanese waves"}),
+    ("Japanese cherry blossom", {"hasImages": "true", "isPublicDomain": "true", "q": "cherry blossom Japanese"}),
+    ("Japanese samurai", {"hasImages": "true", "isPublicDomain": "true", "q": "samurai Japanese"}),
+    ("Tokaido", {"hasImages": "true", "isPublicDomain": "true", "q": "Tōkaidō"}),
+    ("Edo period", {"hasImages": "true", "isPublicDomain": "true", "q": "Edo period painting"}),
+    ("Rinpa school", {"hasImages": "true", "isPublicDomain": "true", "q": "Rinpa"}),
+]
+
+TARGET_NEW = 200
+PER_SEARCH_CAP = 80
+
+# Japanese art uses different media than European oil paintings
+VALID_MEDIA = [
+    "ink", "color on silk", "color on paper", "woodblock", "woodcut",
+    "color on gold", "polychrome", "pigment", "scroll", "screen",
+    "hanging scroll", "handscroll", "album leaf", "gold leaf",
+    "mineral pigment", "watercolor", "gouache",
+]
+
+# Skip items that are clearly not paintings/prints
+SKIP_MEDIA = [
+    "ceramic", "porcelain", "stoneware", "lacquer", "bronze",
+    "iron", "steel", "ivory", "jade", "textile", "silk weave",
+    "embroidery", "sword", "blade", "netsuke", "inro",
+]
+
+
+def is_valid_japanese_art(medium: str) -> bool:
+    medium_lower = medium.lower()
+    for skip in SKIP_MEDIA:
+        if skip in medium_lower:
+            return False
+    for valid in VALID_MEDIA:
+        if valid in medium_lower:
+            return True
+    return False
+
+
+def slugify(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text[:80]
+
+
+def load_state() -> dict:
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {"downloaded": [], "failed": []}
+
+
+def save_state(state: dict):
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def download_image(url: str, filepath: Path) -> bool:
+    try:
+        resp = requests.get(url, timeout=60, stream=True)
+        resp.raise_for_status()
+        content_type = resp.headers.get("content-type", "")
+        if "image" not in content_type and "octet" not in content_type:
+            return False
+        with open(filepath, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        if filepath.stat().st_size < 50_000:
+            filepath.unlink()
+            return False
+        return True
+    except Exception as e:
+        print(f"    Download error: {e}", flush=True)
+        if filepath.exists():
+            filepath.unlink()
+        return False
+
+
+def main():
+    BACKGROUNDS_DIR.mkdir(parents=True, exist_ok=True)
+    state = load_state()
+    seen_ids = set(state["downloaded"]) | set(state["failed"])
+
+    all_candidates = []
+    candidate_set = set()
+
+    for label, params in SEARCHES:
+        print(f"Searching: {label}...", flush=True)
+        data = get_json(f"{MET_BASE}/search", params=params)
+        if data is None:
+            print(f"  Search failed", flush=True)
+            continue
+        ids = data.get("objectIDs") or []
+        new_ids = [oid for oid in ids if oid not in candidate_set and str(oid) not in seen_ids][:PER_SEARCH_CAP]
+        for oid in new_ids:
+            candidate_set.add(oid)
+            all_candidates.append(oid)
+        print(f"  {len(ids)} total, {len(new_ids)} new candidates", flush=True)
+        time.sleep(REQUEST_SLEEP)
+
+    print(f"\nTotal new candidates: {len(all_candidates)}")
+    print(f"Target: {TARGET_NEW} new Japanese artworks\n")
+
+    downloaded = 0
+    scanned = 0
+    for obj_id in all_candidates:
+        if downloaded >= TARGET_NEW:
+            break
+
+        time.sleep(REQUEST_SLEEP)
+        scanned += 1
+        if scanned % 50 == 0:
+            print(f"  ... scanned {scanned}/{len(all_candidates)}, downloaded {downloaded}", flush=True)
+
+        obj = get_json(f"{MET_BASE}/objects/{obj_id}")
+        if obj is None:
+            continue
+
+        if not obj.get("isPublicDomain"):
+            continue
+        if not obj.get("primaryImage"):
+            continue
+
+        medium = obj.get("medium", "")
+        if not is_valid_japanese_art(medium):
+            continue
+
+        title = obj.get("title", "untitled")
+        artist = obj.get("artistDisplayName", "unknown") or "unknown"
+        image_url = obj["primaryImage"]
+
+        filename = f"met-{obj_id}-{slugify(artist)}-{slugify(title)}.jpg"
+        filepath = BACKGROUNDS_DIR / filename
+
+        if filepath.exists():
+            state["downloaded"].append(str(obj_id))
+            save_state(state)
+            downloaded += 1
+            continue
+
+        print(f"  [{downloaded+1}/{TARGET_NEW}] {artist} - {title}", flush=True)
+        if download_image(image_url, filepath):
+            downloaded += 1
+            state["downloaded"].append(str(obj_id))
+            save_state(state)
+        else:
+            state["failed"].append(str(obj_id))
+            save_state(state)
+
+    total = len([f for f in BACKGROUNDS_DIR.iterdir()
+                 if f.is_file() and not f.name.startswith(".")])
+    print(f"\n{'='*60}")
+    print(f"Added {downloaded} new Japanese artworks. Total collection: {total}")
+    print(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    main()

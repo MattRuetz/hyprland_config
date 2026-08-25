@@ -1,0 +1,61 @@
+#!/bin/bash
+# Adjust hyprsunset night light temperature or brightness
+# Usage: nightlight-adjust <temp|brightness> <up|down>
+
+TEMP_STEP=500
+MIN_TEMP=2000
+MAX_TEMP=6500
+
+BRIGHTNESS_STEP=10
+MAX_BRIGHTNESS=100
+MIN_BRIGHTNESS=40
+
+# Ensure hyprsunset is running
+if ! pgrep -x hyprsunset > /dev/null; then
+  setsid uwsm-app -- hyprsunset &
+  sleep 1
+fi
+
+MODE="$1"
+DIR="$2"
+
+if [[ "$MODE" == "temp" ]]; then
+  CURRENT=$(hyprctl hyprsunset temperature 2>/dev/null | grep -oE '[0-9]+')
+  CURRENT=${CURRENT:-6000}
+
+  if [[ "$DIR" == "down" ]]; then
+    NEW=$((CURRENT - TEMP_STEP))
+    (( NEW < MIN_TEMP )) && NEW=$MIN_TEMP
+  elif [[ "$DIR" == "up" ]]; then
+    NEW=$((CURRENT + TEMP_STEP))
+    (( NEW > MAX_TEMP )) && NEW=$MAX_TEMP
+  else
+    echo "Usage: nightlight-adjust <temp|brightness> <up|down>"
+    exit 1
+  fi
+
+  hyprctl hyprsunset temperature "$NEW"
+  notify-send "Night Light" "${NEW}K"
+
+elif [[ "$MODE" == "brightness" ]]; then
+  CURRENT=$(hyprctl hyprsunset gamma 2>/dev/null | grep -oE '^[0-9]+' | head -1)
+  CURRENT=${CURRENT:-100}
+
+  if [[ "$DIR" == "down" ]]; then
+    NEW=$((CURRENT - BRIGHTNESS_STEP))
+    (( NEW < MIN_BRIGHTNESS )) && NEW=$MIN_BRIGHTNESS
+  elif [[ "$DIR" == "up" ]]; then
+    NEW=$((CURRENT + BRIGHTNESS_STEP))
+    (( NEW > MAX_BRIGHTNESS )) && NEW=$MAX_BRIGHTNESS
+  else
+    echo "Usage: nightlight-adjust <temp|brightness> <up|down>"
+    exit 1
+  fi
+
+  hyprctl hyprsunset gamma "$NEW"
+  notify-send "Night Light" "${NEW}%"
+
+else
+  echo "Usage: nightlight-adjust <temp|brightness> <up|down>"
+  exit 1
+fi

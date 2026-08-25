@@ -1,0 +1,73 @@
+#!/bin/bash
+# Simple wrapper script for autoclicker
+# Usage examples:
+#   ./autoclicker.sh                    # Basic autoclicker with 1 second interval
+#   ./autoclicker.sh 0.5                # Click every 0.5 seconds
+#   ./autoclicker.sh 0.1 100 500 50     # Click every 0.1s at position (100,500) for 50 clicks
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+AUTOCLICKER="$SCRIPT_DIR/autoclicker.py"
+
+# Default values
+INTERVAL=1.0
+BUTTON="left"
+X_POS=""
+Y_POS=""
+COUNT=""
+
+# Parse arguments
+case $# in
+    0)
+        # Default settings
+        ;;
+    1)
+        INTERVAL="$1"
+        ;;
+    2)
+        INTERVAL="$1"
+        COUNT="$2"
+        ;;
+    3)
+        INTERVAL="$1"
+        X_POS="$2"
+        Y_POS="$3"
+        ;;
+    4)
+        INTERVAL="$1"
+        X_POS="$2"
+        Y_POS="$3"
+        COUNT="$4"
+        ;;
+    *)
+        echo "Usage: $0 [interval] [x_pos y_pos] [count]"
+        echo "  interval: seconds between clicks (default: 1.0)"
+        echo "  x_pos y_pos: click at specific coordinates"
+        echo "  count: maximum number of clicks"
+        echo ""
+        echo "Examples:"
+        echo "  $0                    # Click every 1 second at current mouse position"
+        echo "  $0 0.5                # Click every 0.5 seconds"
+        echo "  $0 0.1 100 200        # Click every 0.1s at position (100,200)"
+        echo "  $0 1.0 100 200 50     # Click 50 times at (100,200) with 1s interval"
+        echo ""
+        echo "Or use the full Python script directly:"
+        echo "  python3 $AUTOCLICKER --help"
+        exit 1
+        ;;
+esac
+
+# Build command
+CMD="python3 '$AUTOCLICKER' -i $INTERVAL -b $BUTTON"
+
+if [[ -n "$X_POS" && -n "$Y_POS" ]]; then
+    CMD="$CMD -x $X_POS -y $Y_POS"
+fi
+
+if [[ -n "$COUNT" ]]; then
+    CMD="$CMD -c $COUNT"
+fi
+
+echo "Starting autoclicker..."
+echo "Command: $CMD"
+echo ""
+eval $CMD

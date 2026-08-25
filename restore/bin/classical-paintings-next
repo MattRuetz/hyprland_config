@@ -1,0 +1,65 @@
+#!/bin/bash
+# Cycle to the next classical painting wallpaper using a shuffled playlist.
+# State is persisted so the shuffle order survives reboots.
+# When all paintings have been shown, the list is reshuffled.
+
+BACKGROUNDS_DIR="$HOME/.config/omarchy/themes/classical-paintings/backgrounds"
+STATE_DIR="$HOME/.config/omarchy/themes/classical-paintings"
+PLAYLIST_FILE="$STATE_DIR/.wallpaper-playlist.txt"
+INDEX_FILE="$STATE_DIR/.wallpaper-index"
+CURRENT_BACKGROUND_LINK="$HOME/.config/omarchy/current/background"
+
+# Build or load the shuffled playlist
+rebuild_playlist() {
+    find "$BACKGROUNDS_DIR" -maxdepth 1 -type f \
+        ! -name '.*' -print0 | sort -z | shuf -z | tr '\0' '\n' > "$PLAYLIST_FILE"
+    echo "0" > "$INDEX_FILE"
+}
+
+# Rebuild if no playlist, or if painting count changed (new downloads finished)
+CURRENT_COUNT=$(find "$BACKGROUNDS_DIR" -maxdepth 1 -type f ! -name '.*' | wc -l)
+if [[ ! -f "$PLAYLIST_FILE" ]] || [[ ! -f "$INDEX_FILE" ]]; then
+    rebuild_playlist
+else
+    PLAYLIST_COUNT=$(wc -l < "$PLAYLIST_FILE")
+    if (( CURRENT_COUNT != PLAYLIST_COUNT )); then
+        rebuild_playlist
+    fi
+fi
+
+# Read current index
+INDEX=$(cat "$INDEX_FILE" 2>/dev/null || echo "0")
+TOTAL=$(wc -l < "$PLAYLIST_FILE")
+
+if (( TOTAL == 0 )); then
+    notify-send "No classical paintings found" "Run classical-paintings-download first" -t 3000
+    exit 1
+fi
+
+# Wrap around and reshuffle if we've gone through all paintings
+if (( INDEX >= TOTAL )); then
+    rebuild_playlist
+    INDEX=0
+fi
+
+# Get the painting at current index
+PAINTING=$(sed -n "$((INDEX + 1))p" "$PLAYLIST_FILE")
+
+if [[ -z "$PAINTING" ]] || [[ ! -f "$PAINTING" ]]; then
+    # Stale playlist entry, rebuild
+    rebuild_playlist
+    INDEX=0
+    PAINTING=$(sed -n "1p" "$PLAYLIST_FILE")
+fi
+
+# Set the wallpaper using omarchy's native command
+omarchy-theme-bg-set "$PAINTING"
+
+# Show notification with painting name
+BASENAME=$(basename "$PAINTING" .jpg)
+# Strip the numeric prefix and source tag for a cleaner name
+DISPLAY_NAME=$(echo "$BASENAME" | sed -E 's/^[0-9]+-[a-z]+-//' | sed 's/-/ /g')
+notify-send "Painting of the Day" "$DISPLAY_NAME" -t 3000
+
+# Advance index
+echo "$((INDEX + 1))" > "$INDEX_FILE"

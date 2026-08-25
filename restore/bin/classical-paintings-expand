@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""Download additional diverse paintings: landscapes, American West, modern, non-European."""
+
+import json
+import re
+import sys
+import time
+from pathlib import Path
+
+import requests
+
+BACKGROUNDS_DIR = Path.home() / ".config/omarchy/themes/classical-paintings/backgrounds"
+STATE_FILE = BACKGROUNDS_DIR / ".download-state.json"
+MET_BASE = "https://collectionapi.metmuseum.org/public/collection/v1"
+
+REQUEST_SLEEP = 0.5  # Polite delay between requests
+HEADERS = {"User-Agent": "ClassicalPaintingsBot/1.0 (personal wallpaper rotation)"}
+
+
+def get_json(url, params=None, max_retries=3):
+    """GET that handles MET rate-limit pages (HTML responses) with backoff."""
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
+            if resp.status_code != 200:
+                time.sleep(5 * (attempt + 1))
+                continue
+            text = resp.text.lstrip()
+            if text.startswith("<"):
+                # Got HTML (rate limit / CAPTCHA page)
+                print(f"  ! Rate-limited, backing off {15 * (attempt + 1)}s", flush=True)
+                time.sleep(15 * (attempt + 1))
+                continue
+            return resp.json()
+        except (requests.RequestException, json.JSONDecodeError) as e:
+            print(f"  ! Request error: {e}", flush=True)
+            time.sleep(5)
+    return None
+
+# Search by artist name (no dept filter — American Wing isn't a dept ID).
+# Filter applied on object detail: isPublicDomain + oil medium.
+SEARCHES = [
+    # Hudson River School & American landscape masters
+    ("Albert Bierstadt", {"hasImages": "true", "isPublicDomain": "true", "q": "Albert Bierstadt"}),
+    ("Thomas Cole", {"hasImages": "true", "isPublicDomain": "true", "q": "Thomas Cole"}),
+    ("Frederic Church", {"hasImages": "true", "isPublicDomain": "true", "q": "Frederic Edwin Church"}),
+    ("Thomas Moran", {"hasImages": "true", "isPublicDomain": "true", "q": "Thomas Moran"}),
+    ("George Inness", {"hasImages": "true", "isPublicDomain": "true", "q": "Inness"}),
+    ("Asher Durand", {"hasImages": "true", "isPublicDomain": "true", "q": "Asher Durand"}),
+    ("John Kensett", {"hasImages": "true", "isPublicDomain": "true", "q": "John Frederick Kensett"}),
+    ("Jasper Cropsey", {"hasImages": "true", "isPublicDomain": "true", "q": "Jasper Cropsey"}),
+    ("Martin Heade", {"hasImages": "true", "isPublicDomain": "true", "q": "Martin Johnson Heade"}),
+    ("Winslow Homer", {"hasImages": "true", "isPublicDomain": "true", "q": "Winslow Homer"}),
+    ("Sanford Gifford", {"hasImages": "true", "isPublicDomain": "true", "q": "Sanford Gifford"}),
+    ("Worthington Whittredge", {"hasImages": "true", "isPublicDomain": "true", "q": "Worthington Whittredge"}),
+    ("Fitz Henry Lane", {"hasImages": "true", "isPublicDomain": "true", "q": "Fitz Henry Lane"}),
+    ("George Bingham", {"hasImages": "true", "isPublicDomain": "true", "q": "George Caleb Bingham"}),
+    ("Eastman Johnson", {"hasImages": "true", "isPublicDomain": "true", "q": "Eastman Johnson"}),
+    # European landscape masters
+    ("Constable", {"hasImages": "true", "isPublicDomain": "true", "q": "John Constable"}),
+    ("Turner", {"hasImages": "true", "isPublicDomain": "true", "q": "J.M.W. Turner"}),
+    ("Friedrich", {"hasImages": "true", "isPublicDomain": "true", "q": "Caspar David Friedrich"}),
+    ("Corot", {"hasImages": "true", "isPublicDomain": "true", "q": "Camille Corot"}),
+    ("Daubigny", {"hasImages": "true", "isPublicDomain": "true", "q": "Charles Daubigny"}),
+    # Diverse landscape keywords
+    ("landscape mountain", {"hasImages": "true", "isPublicDomain": "true", "q": "landscape mountain"}),
+    ("landscape valley", {"hasImages": "true", "isPublicDomain": "true", "q": "landscape valley"}),
+    ("landscape river", {"hasImages": "true", "isPublicDomain": "true", "q": "landscape river"}),
+    ("landscape autumn", {"hasImages": "true", "isPublicDomain": "true", "q": "landscape autumn"}),
+    ("landscape sunset", {"hasImages": "true", "isPublicDomain": "true", "q": "landscape sunset"}),
+    ("seascape", {"hasImages": "true", "isPublicDomain": "true", "q": "seascape"}),
+    ("Hudson River", {"hasImages": "true", "isPublicDomain": "true", "q": "Hudson River"}),
+    ("Niagara", {"hasImages": "true", "isPublicDomain": "true", "q": "Niagara"}),
+    ("Yosemite", {"hasImages": "true", "isPublicDomain": "true", "q": "Yosemite"}),
+    ("Rocky Mountains", {"hasImages": "true", "isPublicDomain": "true", "q": "Rocky Mountains"}),
+]
+
+TARGET_NEW = 150
+
+
+def slugify(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text[:80]
+
+
+def load_state() -> dict:
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {"downloaded": [], "failed": []}
+
+
+def save_state(state: dict):
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def download_image(url: str, filepath: Path) -> bool:
+    try:
+        resp = requests.get(url, timeout=60, stream=True)
+        resp.raise_for_status()
+        content_type = resp.headers.get("content-type", "")
+        if "image" not in content_type and "octet" not in content_type:
+            return False
+        with open(filepath, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        if filepath.stat().st_size < 50_000:
+            filepath.unlink()
+            return False
+        return True
+    except Exception as e:
+        print(f"    Download error: {e}")
+        if filepath.exists():
+            filepath.unlink()
+        return False
+
+
+def main():
+    BACKGROUNDS_DIR.mkdir(parents=True, exist_ok=True)
+    state = load_state()
+    seen_ids = set(state["downloaded"]) | set(state["failed"])
+
+    # Gather all candidate object IDs from all searches, deduped
+    all_candidates = []
+    candidate_set = set()
+
+    PER_SEARCH_CAP = 80
+    for label, params in SEARCHES:
+        print(f"Searching: {label}...", flush=True)
+        data = get_json(f"{MET_BASE}/search", params=params)
+        if data is None:
+            print(f"  Search failed", flush=True)
+            continue
+        ids = data.get("objectIDs") or []
+        new_ids = [oid for oid in ids if oid not in candidate_set and str(oid) not in seen_ids][:PER_SEARCH_CAP]
+        for oid in new_ids:
+            candidate_set.add(oid)
+            all_candidates.append(oid)
+        print(f"  {len(ids)} total, {len(new_ids)} kept (capped at {PER_SEARCH_CAP})", flush=True)
+        time.sleep(REQUEST_SLEEP)
+
+    print(f"\nTotal new candidates to check: {len(all_candidates)}")
+    print(f"Target: {TARGET_NEW} new paintings\n")
+
+    downloaded = 0
+    scanned = 0
+    for i, obj_id in enumerate(all_candidates):
+        if downloaded >= TARGET_NEW:
+            break
+
+        time.sleep(REQUEST_SLEEP)
+        scanned += 1
+        if scanned % 50 == 0:
+            print(f"  ... scanned {scanned}/{len(all_candidates)}, downloaded {downloaded}", flush=True)
+
+        obj = get_json(f"{MET_BASE}/objects/{obj_id}")
+        if obj is None:
+            continue
+
+        if not obj.get("isPublicDomain"):
+            continue
+        if not obj.get("primaryImage"):
+            continue
+
+        medium = obj.get("medium", "").lower()
+        if "oil" not in medium:
+            continue
+
+        title = obj.get("title", "untitled")
+        artist = obj.get("artistDisplayName", "unknown") or "unknown"
+        image_url = obj["primaryImage"]
+
+        filename = f"met-{obj_id}-{slugify(artist)}-{slugify(title)}.jpg"
+        filepath = BACKGROUNDS_DIR / filename
+
+        if filepath.exists():
+            state["downloaded"].append(str(obj_id))
+            save_state(state)
+            downloaded += 1
+            continue
+
+        print(f"  [{downloaded+1}/{TARGET_NEW}] {artist} - {title}", flush=True)
+        if download_image(image_url, filepath):
+            downloaded += 1
+            state["downloaded"].append(str(obj_id))
+            save_state(state)
+        else:
+            state["failed"].append(str(obj_id))
+            save_state(state)
+
+    total = len([f for f in BACKGROUNDS_DIR.iterdir()
+                 if f.is_file() and not f.name.startswith(".")])
+    print(f"\n{'='*60}")
+    print(f"Added {downloaded} new paintings. Total collection: {total}")
+    print(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    main()

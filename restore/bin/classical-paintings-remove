@@ -1,0 +1,25 @@
+#!/bin/bash
+# Remove the current painting from the collection and advance to the next one.
+
+CURRENT_BACKGROUND_LINK="$HOME/.local/state/omarchy/current/background"
+THEME_BACKGROUNDS="$HOME/.config/omarchy/themes/classical-paintings/backgrounds"
+
+if [[ ! -L "$CURRENT_BACKGROUND_LINK" ]]; then
+    notify-send "No painting active" -t 2000
+    exit 1
+fi
+
+# The current background points at the staged theme copy, so delete the
+# source painting too or the next theme refresh brings it back.
+CURRENT=$(readlink -f "$CURRENT_BACKGROUND_LINK")
+SOURCE="$THEME_BACKGROUNDS/$(basename "$CURRENT")"
+BASENAME=$(basename "$CURRENT" .jpg)
+DISPLAY_NAME=$(echo "$BASENAME" | sed -E 's/^[0-9]+-[a-z]+-//' | sed 's/-/ /g')
+
+if [[ -f "$CURRENT" || -f "$SOURCE" ]]; then
+    rm -f "$CURRENT" "$SOURCE"
+    notify-send "Removed" "$DISPLAY_NAME" -t 2000
+fi
+
+# Advance to next painting
+exec /home/matt/.local/bin/classical-paintings-next
