@@ -70,3 +70,7 @@ o.bind("mouse:275", "Previous workspace (mouse back)", hl.dsp.focus({ workspace 
 
 -- Thumb button (BTN_FORWARD) toggles voxtype dictation, same as SUPER + V.
 o.bind("mouse:277", "Toggle dictation (mouse thumb)", "voxtype record toggle", { mouse = true })
+
+-- Run menu: personal scripts from ~/.local/bin.
+-- Rows live in ~/.config/omarchy/extensions/omarchy-menu.jsonc under "run.*".
+o.bind("SUPER + R", "Run script", "omarchy-menu toggle run")
