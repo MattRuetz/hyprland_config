@@ -6,8 +6,8 @@ hl.env("GDK_SCALE", "3")
 -- Anything not listed below: preferred mode, auto position and scale.
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 3 })
 
--- BenQ GW2780, left side, rotated 90 CW (effective 720x1280).
-hl.monitor({ output = "DP-1", mode = "preferred", position = "0x0", scale = 1.5, transform = 1 })
+-- BenQ GW2780, left side, rotated 90 CCW (effective 720x1280).
+hl.monitor({ output = "DP-1", mode = "preferred", position = "0x0", scale = 1.5, transform = 3 })
 
 -- Laptop display, right of the BenQ.
 hl.monitor({ output = "eDP-1", mode = "preferred", position = "720x0", scale = 2 })
