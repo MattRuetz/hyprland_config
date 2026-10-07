@@ -75,7 +75,7 @@ o.bind("mouse:277", "Toggle dictation (mouse thumb)", "voxtype record toggle", {
 -- Rows live in ~/.config/omarchy/extensions/omarchy-menu.jsonc under "run.*".
 o.bind("SUPER + R", "Run script", "omarchy-menu toggle run")
 
--- Glimpse (~/Projects/glimpse): log a moment of noticing, or start a moment now.
+-- Glimpse (~/Documents/Projects/glimpse): log a moment of noticing, or start a moment now.
 local glimpse = os.getenv("HOME") .. "/.local/bin/glimpse "
 o.bind("SUPER + PERIOD", "Glimpse: noticed I was lost in thought", glimpse .. "back")
 o.bind("SUPER + SHIFT + PERIOD", "Glimpse: take a moment", glimpse .. "moment")
