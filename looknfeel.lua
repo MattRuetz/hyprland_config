@@ -24,8 +24,8 @@ hl.config({
   },
 })
 
--- Alacritty gets its own transparency instead of the default window opacity.
-o.window("Alacritty", { tag = "-default-opacity", opacity = "0.9 0.82" })
+-- Terminals get their own transparency instead of the default window opacity.
+o.window("(Alacritty|com.mitchellh.ghostty)", { tag = "-default-opacity", opacity = "0.9 0.82" })
 
 -- Scratchpad windows stay opaque and unblurred: layered rendering there is
 -- expensive and the window is on top of everything anyway.
