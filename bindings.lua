@@ -36,7 +36,7 @@ o.bind("SUPER + N", "Notification history", "omarchy-shell notifications showHis
 o.bind("SUPER + O", "Obsidian", { launch = "obsidian" })
 o.bind("SUPER + D", "File manager", { launch = "nautilus" })
 o.bind("SUPER + C", "Chromium", { launch = "chromium" })
-o.bind("SUPER + X", "cdsp", o.launch("alacritty -e " .. os.getenv("HOME") .. "/.local/bin/cdsp"))
+o.bind("SUPER + X", "cdsp", o.launch("ghostty -e " .. os.getenv("HOME") .. "/.local/bin/cdsp"))
 o.bind("SUPER + T", "Toggle floating", hl.dsp.window.float({ action = "toggle" }))
 o.bind("SUPER + ESCAPE", "Lock screen", "omarchy-system-lock")
 o.bind("SUPER + M", "Logout", "omarchy-system-logout")
