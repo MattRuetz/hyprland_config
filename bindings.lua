@@ -79,3 +79,6 @@ o.bind("SUPER + R", "Run script", "omarchy-menu toggle run")
 local glimpse = os.getenv("HOME") .. "/.local/bin/glimpse "
 o.bind("SUPER + PERIOD", "Glimpse: noticed I was lost in thought", glimpse .. "back")
 o.bind("SUPER + SHIFT + PERIOD", "Glimpse: take a moment", glimpse .. "moment")
+
+-- Claude Code: jump to the session that last chimed for input (~/.local/bin/claude-chime).
+o.bind("SUPER + A", "Claude: jump to waiting session", os.getenv("HOME") .. "/.local/bin/claude-chime focus")
