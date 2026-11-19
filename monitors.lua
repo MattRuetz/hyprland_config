@@ -6,6 +6,25 @@
 --   vertical - external monitor rotated 90 CCW, left of the laptop
 -- Positions are auto-right, so either external panel (BenQ 1080p or HP 4K)
 -- places the laptop correctly with no gap or overlap.
+--
+-- This repo is shared with other machines. Everything below the hostname
+-- check is the laptop's (mattop) layout. Any other host gets Omarchy's stock
+-- defaults until it has a section of its own.
+
+local hostname = "mattop"
+do
+  local f = io.open("/etc/hostname", "r")
+  if f then
+    hostname = (f:read("l") or ""):gsub("%s+", "")
+    f:close()
+  end
+end
+
+if hostname ~= "mattop" then
+  hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "auto" })
+  hl.env("GDK_SCALE", "2")
+  return
+end
 
 hl.env("GDK_SCALE", "3")
 
